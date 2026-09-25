@@ -1,0 +1,4 @@
+{
+  "expected_action": "rollout_restart",
+  "text": "Alert: CheckoutHighErrorBurnRate (14.4x, 5m/1h). checkoutservice p95 latency 4.8s. Logs: 'context deadline exceeded' calling paymentservice. paymentservice pods healthy, memory of checkoutservice climbing steadily to 96% of limit over 40 minutes."
+}

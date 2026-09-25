@@ -1,0 +1,4 @@
+{
+  "expected_action": "restart_pod",
+  "text": "Alert: FrontendPodCrashLoop. Pod frontend-7d9f-abcde restarted 6 times in 10m. Other frontend replicas healthy. Last termination reason: OOMKilled on this pod only."
+}

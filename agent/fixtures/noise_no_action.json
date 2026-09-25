@@ -1,0 +1,4 @@
+{
+  "expected_action": "no_action",
+  "text": "Alert: FrontendLatencyWarning. p95 rose from 120ms to 180ms for 2 minutes during a known loadgenerator ramp. Error rate 0%. CPU at 45%. No restarts, no deploys."
+}

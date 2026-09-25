@@ -1,0 +1,4 @@
+{
+  "expected_action": "rollback_deployment",
+  "text": "Alert: CheckoutHighErrorBurnRate (14.4x). Deployment checkoutservice rolled out 3 minutes ago (revision 5). Error rate was 0.1% before, now 38%. Logs: 'nil pointer dereference' in new revision. Revision 4 was stable for 6 days."
+}
