@@ -15,8 +15,14 @@ from kubernetes import client, config
 PROMETHEUS_URL = "http://localhost:9090"
 TEMPO_URL = "http://localhost:3200"
 
-config.load_kube_config()
-core_v1 = client.CoreV1Api()
+
+def _get_core_v1():
+    """Lazy-init k8s client — safe to call in-cluster or with kubeconfig."""
+    try:
+        config.load_incluster_config()
+    except Exception:
+        config.load_kube_config()
+    return client.CoreV1Api()
 
 
 def query_prometheus(promql: str, minutes: int = 30) -> str:
@@ -44,6 +50,7 @@ def query_prometheus(promql: str, minutes: int = 30) -> str:
 def get_k8s_context(namespace: str, target: str) -> str:
     """Pod status, restart counts, and recent logs for a deployment or pod."""
     try:
+        core_v1 = _get_core_v1()
         pods = core_v1.list_namespaced_pod(
             namespace=namespace, label_selector=f"app={target}"
         ).items

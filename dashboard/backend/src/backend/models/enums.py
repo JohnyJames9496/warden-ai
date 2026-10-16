@@ -33,9 +33,10 @@ class ApprovalStatus(str, enum.Enum):
     rejected = "rejected"
 
 
-# The four whitelisted remediation actions — nothing outside this set.
+# The whitelisted remediation actions — nothing outside this set.
 class ActionType(str, enum.Enum):
     restart_pod = "restart_pod"
+    rollout_restart = "rollout_restart"
     scale_deployment = "scale_deployment"
     rollback_deployment = "rollback_deployment"
     toggle_feature_flag = "toggle_feature_flag"
