@@ -1,19 +1,19 @@
-"""Warden M4 — LangGraph diagnosis agent.
-
-Graph: START -> retrieval -> gather_context -> diagnose -> END
+"""
+Graph: START -> retrieval -> gather_context -> diagnose -> policy_check -> execute -> END
 """
 import os
 import sys
 import logging
 from pathlib import Path
-from typing import TypedDict, Literal
+from typing import TypedDict
 
-# Ensure repo root is accessible for policies.client
+# Ensure repo root is accessible for policies.client and executor
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from policies.client import check_policy, PolicyUnavailableError
+from executor.executor import execute
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -50,6 +50,7 @@ class AgentState(TypedDict):
     runbook_context: str
     incident_history: str
     diagnosis: dict
+    execution_result: dict  # ← new: executor output
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +214,6 @@ def policy_check(state: AgentState) -> AgentState:
     if diag.get("desired_replicas") is not None:
         extra["desired_replicas"] = diag["desired_replicas"]
 
-    # If scaling but current_replicas not provided, attempt lookup from k8s
     if opa_action == "scale" and "current_replicas" not in extra:
         try:
             apps_v1 = client.AppsV1Api()
@@ -240,7 +240,6 @@ def policy_check(state: AgentState) -> AgentState:
             log.info("OPA policy ALLOWED (risk=low, auto-executable) for action '%s'", opa_action)
 
     except Exception as exc:
-        # Fail closed: treat as needs approval, do not auto-execute
         log.error("OPA policy check failed (failing closed to needs_approval): %s", exc)
         allowed = False
         risk = "high"
@@ -256,6 +255,35 @@ def policy_check(state: AgentState) -> AgentState:
 
 
 # ---------------------------------------------------------------------------
+# Executor node
+# ---------------------------------------------------------------------------
+
+def execute_node(state: AgentState) -> AgentState:
+    """
+    Runs the approved remediation action against the cluster.
+    - auto_executable  → runs immediately
+    - needs_approval   → skips execution, waits for human via Slack/dashboard
+    - denied           → skips execution
+    """
+    diag = state.get("diagnosis", {})
+    if not diag:
+        state["execution_result"] = {"status": "skipped", "reason": "no diagnosis"}
+        return state
+
+    # Skip no_action and escalate — nothing to execute
+    action = diag.get("action", "")
+    if action in ("no_action", "escalate"):
+        log.info("execute_node: action=%s — skipping execution", action)
+        state["execution_result"] = {"status": "skipped", "reason": f"action={action}"}
+        return state
+
+    result = execute(diag)
+    log.info("execution_result: %s", result)
+    state["execution_result"] = result
+    return state
+
+
+# ---------------------------------------------------------------------------
 # Graph
 # ---------------------------------------------------------------------------
 
@@ -265,9 +293,11 @@ def build_graph():
     g.add_node("gather_context", gather_context)
     g.add_node("diagnose", diagnose)
     g.add_node("policy_check", policy_check)
+    g.add_node("execute", execute_node)
     g.add_edge(START, "retrieval")
     g.add_edge("retrieval", "gather_context")
     g.add_edge("gather_context", "diagnose")
     g.add_edge("diagnose", "policy_check")
-    g.add_edge("policy_check", END)
+    g.add_edge("policy_check", "execute")
+    g.add_edge("execute", END)
     return g.compile()
