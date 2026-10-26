@@ -2,6 +2,8 @@
 Graph: START -> retrieval -> gather_context -> diagnose -> policy_check -> execute -> END
 """
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import sys
 import logging
 from pathlib import Path

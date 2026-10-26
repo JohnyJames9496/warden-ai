@@ -1,9 +1,4 @@
-"""Warden detector receiver.
-
-Accepts Alertmanager webhook payloads and normalizes each alert into an
-Incident. Incidents are held in memory for now; persistence arrives with the
-dashboard backend (M8) and the agent consumes them from M4 onward.
-"""
+"""Warden detector receiver."""
 import json
 import logging
 import os
@@ -25,6 +20,7 @@ log = logging.getLogger("warden.detector")
 MAX_INCIDENTS = 200
 ZERO_TIME = "0001-01-01T00:00:00Z"
 AGENT_URL = os.environ.get("AGENT_URL", "http://localhost:8001")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8000")
 
 
 class AMAlert(BaseModel):
@@ -84,8 +80,29 @@ def normalize(alert: AMAlert) -> Incident:
     )
 
 
+def notify_dashboard(incident: Incident) -> None:
+    """POST alert_fired to dashboard so incident appears before agent runs."""
+    payload = {
+        "event": "alert_fired",
+        "fingerprint": incident.fingerprint,
+        "alertname": incident.alertname,
+        "service": incident.service,
+        "namespace": "warden-demo",
+        "severity": incident.severity,
+        "summary": incident.summary,
+        "description": incident.description,
+        "started_at": incident.started_at,
+    }
+    try:
+        resp = httpx.post(f"{DASHBOARD_URL}/internal/ingest", json=payload, timeout=10)
+        resp.raise_for_status()
+        log.info(json.dumps({"event": "dashboard_notified", "fingerprint": incident.fingerprint}))
+    except Exception as exc:
+        log.warning(json.dumps({"event": "dashboard_notify_failed", "error": str(exc)}))
+
+
 def call_agent(incident: Incident) -> None:
-    """POST incident to agent /diagnose in a background thread."""
+    """POST to agent /diagnose — agent pushes diagnosis back to dashboard."""
     payload = {
         "name": incident.alertname,
         "namespace": "warden-demo",
@@ -118,9 +135,13 @@ def alertmanager_webhook(payload: AMWebhook) -> dict:
                 incidents.move_to_end(incident.fingerprint)
                 while len(incidents) > MAX_INCIDENTS:
                     incidents.popitem(last=False)
+
         log.info(json.dumps({"event": "incident", **incident.model_dump()}))
+
         if incident.status == "firing":
+            Thread(target=notify_dashboard, args=(incident,), daemon=True).start()
             Thread(target=call_agent, args=(incident,), daemon=True).start()
+
     return {"received": len(payload.alerts)}
 
 

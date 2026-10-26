@@ -1,0 +1,54 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: warden-executor
+  namespace: warden-demo
+  labels:
+    app.kubernetes.io/part-of: warden
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: warden-executor
+  namespace: warden-demo
+  labels:
+    app.kubernetes.io/part-of: warden
+rules:
+  # Needed for rollout_restart, scale_deployment, rollback_deployment
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+
+  # Needed for scale_deployment
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+
+  # Needed for restart_pod and verifier pod health checks
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+
+  # Needed for gather_context in agent
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-executor
+  namespace: warden-demo
+  labels:
+    app.kubernetes.io/part-of: warden
+subjects:
+  - kind: ServiceAccount
+    name: warden-executor
+    namespace: warden-demo
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: warden-executor

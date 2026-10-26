@@ -1,7 +1,5 @@
 """
-Shared enums for model status fields. Kept in one place so the same set of
-values is used consistently across models, API schemas, and the frontend
-contract (these string values are what the API actually returns as JSON).
+Shared enums for model status fields.
 """
 
 import enum
@@ -33,7 +31,6 @@ class ApprovalStatus(str, enum.Enum):
     rejected = "rejected"
 
 
-# The whitelisted remediation actions — nothing outside this set.
 class ActionType(str, enum.Enum):
     restart_pod = "restart_pod"
     rollout_restart = "rollout_restart"

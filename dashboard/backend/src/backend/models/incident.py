@@ -29,6 +29,12 @@ class Incident(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
+    # Alertmanager fingerprint — used to upsert on re-fires.
+    # Nullable so seeded/test incidents without a real alert still work.
+    fingerprint: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     service: Mapped[str] = mapped_column(String(255), nullable=False)
     namespace: Mapped[str] = mapped_column(String(255), nullable=False)
