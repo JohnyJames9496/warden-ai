@@ -1,0 +1,35 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: warden-burn-rate-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: warden
+    release: prometheus
+spec:
+  groups:
+  - name: warden.slo.burnrate
+    rules:
+    - alert: WardenErrorBudgetBurnFast
+      expr: |
+        warden:sli_error_ratio:rate5m > (14.4 * 0.01)
+        and
+        warden:sli_error_ratio:rate1m > (14.4 * 0.01)
+      for: 30s
+      labels:
+        severity: critical
+        burn: fast
+        slo: availability
+      annotations:
+        summary: Fast error-budget burn on {{ $labels.service }}
+        description: '{{ $labels.service }} error ratio is {{ $value | humanizePercentage }} (SLO 99%, threshold 14.4x burn).'
+    - alert: WardenErrorBudgetBurnSlow
+      expr: |
+        warden:sli_error_ratio:rate30m > (6 * 0.01)
+        and
+        warden:sli_error_ratio:rate5m > (6 * 0.01)
+      for: 1m
+      labels:
+        severity: warning
+        burn: slow
+        slo: availability

@@ -1,0 +1,67 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: warden-sli-recording-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: warden
+    release: prometheus
+spec:
+  groups:
+  - name: warden.sli.availability
+    interval: 30s
+    rules:
+    - expr: |
+        (
+          sum by (service) (rate(frontend_http_requests_total{status=~"5..",path!="/_healthz"}[1m]))
+          or
+          0 * sum by (service) (rate(frontend_http_requests_total{path!="/_healthz"}[1m]))
+        )
+        /
+        sum by (service) (rate(frontend_http_requests_total{path!="/_healthz"}[1m]))
+      record: warden:sli_error_ratio:rate1m
+    - expr: |
+        (
+          sum by (service) (rate(frontend_http_requests_total{status=~"5..",path!="/_healthz"}[5m]))
+          or
+          0 * sum by (service) (rate(frontend_http_requests_total{path!="/_healthz"}[5m]))
+        )
+        /
+        sum by (service) (rate(frontend_http_requests_total{path!="/_healthz"}[5m]))
+      record: warden:sli_error_ratio:rate5m
+    - expr: |
+        (
+          sum by (service) (rate(frontend_http_requests_total{status=~"5..",path!="/_healthz"}[30m]))
+          or
+          0 * sum by (service) (rate(frontend_http_requests_total{path!="/_healthz"}[30m]))
+        )
+        /
+        sum by (service) (rate(frontend_http_requests_total{path!="/_healthz"}[30m]))
+      record: warden:sli_error_ratio:rate30m
+    - expr: |
+        (
+          sum by (service) (rate(checkoutservice_grpc_requests_total{code=~"Internal|Unavailable|DeadlineExceeded|Unknown|DataLoss",method!="/grpc.health.v1.Health/Check"}[1m]))
+          or
+          0 * sum by (service) (rate(checkoutservice_grpc_requests_total{method!="/grpc.health.v1.Health/Check"}[1m]))
+        )
+        /
+        sum by (service) (rate(checkoutservice_grpc_requests_total{method!="/grpc.health.v1.Health/Check"}[1m]))
+      record: warden:sli_error_ratio:rate1m
+    - expr: |
+        (
+          sum by (service) (rate(checkoutservice_grpc_requests_total{code=~"Internal|Unavailable|DeadlineExceeded|Unknown|DataLoss",method!="/grpc.health.v1.Health/Check"}[5m]))
+          or
+          0 * sum by (service) (rate(checkoutservice_grpc_requests_total{method!="/grpc.health.v1.Health/Check"}[5m]))
+        )
+        /
+        sum by (service) (rate(checkoutservice_grpc_requests_total{method!="/grpc.health.v1.Health/Check"}[5m]))
+      record: warden:sli_error_ratio:rate5m
+    - expr: |
+        (
+          sum by (service) (rate(checkoutservice_grpc_requests_total{code=~"Internal|Unavailable|DeadlineExceeded|Unknown|DataLoss",method!="/grpc.health.v1.Health/Check"}[30m]))
+          or
+          0 * sum by (service) (rate(checkoutservice_grpc_requests_total{method!="/grpc.health.v1.Health/Check"}[30m]))
+        )
+        /
+        sum by (service) (rate(checkoutservice_grpc_requests_total{method!="/grpc.health.v1.Health/Check"}[30m]))
+      record: warden:sli_error_ratio:rate30m

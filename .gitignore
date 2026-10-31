@@ -8,3 +8,9 @@ agent/.env
 receiver/.env
 **/receiver/.env
 agent/data/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.env

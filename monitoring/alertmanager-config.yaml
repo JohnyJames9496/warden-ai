@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: warden-detector
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: warden
+spec:
+  route:
+    receiver: warden-detector-receiver
+    groupBy:
+      - alertname
+      - service
+    groupWait: 10s
+    groupInterval: 1m
+    repeatInterval: 1h
+    matchers:
+      - name: alertname
+        matchType: "=~"
+        value: "WardenErrorBudgetBurn.*"
+  receivers:
+    - name: warden-detector-receiver
+      webhookConfigs:
+        - url: http://detector-receiver.warden-system.svc:8000/webhook/alertmanager
+          sendResolved: true
