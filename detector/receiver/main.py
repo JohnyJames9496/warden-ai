@@ -1,4 +1,3 @@
-"""Warden detector receiver."""
 import json
 import logging
 import os
@@ -81,7 +80,6 @@ def normalize(alert: AMAlert) -> Incident:
 
 
 def notify_dashboard(incident: Incident) -> None:
-    """POST alert_fired to dashboard so incident appears before agent runs."""
     payload = {
         "event": "alert_fired",
         "fingerprint": incident.fingerprint,
@@ -102,7 +100,6 @@ def notify_dashboard(incident: Incident) -> None:
 
 
 def call_agent(incident: Incident) -> None:
-    """POST to agent /diagnose — agent pushes diagnosis back to dashboard."""
     payload = {
         "name": incident.alertname,
         "namespace": "warden-demo",
@@ -117,6 +114,11 @@ def call_agent(incident: Incident) -> None:
         log.info(json.dumps({"event": "agent_diagnosis", "fingerprint": incident.fingerprint, "result": resp.json()}))
     except Exception as exc:
         log.error(json.dumps({"event": "agent_error", "fingerprint": incident.fingerprint, "error": str(exc)}))
+
+
+def pipeline(incident: Incident) -> None:
+    notify_dashboard(incident)
+    call_agent(incident)
 
 
 @app.get("/healthz")
@@ -135,13 +137,9 @@ def alertmanager_webhook(payload: AMWebhook) -> dict:
                 incidents.move_to_end(incident.fingerprint)
                 while len(incidents) > MAX_INCIDENTS:
                     incidents.popitem(last=False)
-
         log.info(json.dumps({"event": "incident", **incident.model_dump()}))
-
         if incident.status == "firing":
-            Thread(target=notify_dashboard, args=(incident,), daemon=True).start()
-            Thread(target=call_agent, args=(incident,), daemon=True).start()
-
+            Thread(target=pipeline, args=(incident,), daemon=True).start()
     return {"received": len(payload.alerts)}
 
 
