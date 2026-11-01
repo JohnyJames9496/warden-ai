@@ -1,0 +1,9 @@
+tempo:
+  storage:
+    trace:
+      backend: s3
+      s3:
+        bucket: tempo-traces
+        endpoint: minio.monitoring.svc.cluster.local:9000
+        access_key: admin
+        insecure: true

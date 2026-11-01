@@ -1,0 +1,198 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: warden-kubernetes-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: warden
+    release: prometheus
+spec:
+  groups:
+  - name: warden.pod.health
+    rules:
+    - alert: WardenPodCrashLooping
+      expr: |
+        kube_pod_container_status_waiting_reason{
+          reason="CrashLoopBackOff",
+          namespace="warden-demo"
+        } > 0
+      for: 1m
+      labels:
+        severity: critical
+        slo: availability
+        type: pod
+      annotations:
+        summary: Pod {{ $labels.pod }} is in CrashLoopBackOff
+        description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been in CrashLoopBackOff for more than 1 minute.
+
+    - alert: WardenPodOOMKilled
+      expr: |
+        kube_pod_container_status_last_terminated_reason{
+          reason="OOMKilled",
+          namespace="warden-demo"
+        } > 0
+      for: 0m
+      labels:
+        severity: critical
+        slo: availability
+        type: pod
+      annotations:
+        summary: Pod {{ $labels.pod }} was OOMKilled
+        description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} was killed due to out of memory.
+
+    - alert: WardenPodNotReady
+      expr: |
+        kube_pod_status_ready{
+          condition="false",
+          namespace="warden-demo"
+        } > 0
+      for: 2m
+      labels:
+        severity: warning
+        slo: availability
+        type: pod
+      annotations:
+        summary: Pod {{ $labels.pod }} is not ready
+        description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been not ready for more than 2 minutes.
+
+    - alert: WardenPodRestartingFrequently
+      expr: |
+        increase(kube_pod_container_status_restarts_total{
+          namespace="warden-demo"
+        }[15m]) > 3
+      for: 0m
+      labels:
+        severity: warning
+        slo: availability
+        type: pod
+      annotations:
+        summary: Pod {{ $labels.pod }} is restarting frequently
+        description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted more than 3 times in 15 minutes.
+
+    - alert: WardenContainerWaiting
+      expr: |
+        kube_pod_container_status_waiting_reason{
+          reason=~"ImagePullBackOff|ErrImagePull|CreateContainerConfigError|InvalidImageName",
+          namespace="warden-demo"
+        } > 0
+      for: 2m
+      labels:
+        severity: critical
+        slo: availability
+        type: pod
+      annotations:
+        summary: Container {{ $labels.container }} in pod {{ $labels.pod }} is waiting
+        description: Container {{ $labels.container }} is stuck in waiting state due to {{ $labels.reason }}.
+
+  - name: warden.node.health
+    rules:
+    - alert: WardenNodeNotReady
+      expr: |
+        kube_node_status_condition{condition="Ready",status="true"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        slo: availability
+        type: node
+      annotations:
+        summary: Node {{ $labels.node }} is not ready
+        description: Node {{ $labels.node }} has been not ready for more than 1 minute.
+
+    - alert: WardenNodeHighCPU
+      expr: |
+        100 - (avg by (node) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+      for: 5m
+      labels:
+        severity: warning
+        slo: performance
+        type: node
+      annotations:
+        summary: Node {{ $labels.node }} CPU usage is high
+        description: Node {{ $labels.node }} CPU usage is above 85% for more than 5 minutes.
+
+    - alert: WardenNodeHighMemory
+      expr: |
+        (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+        slo: performance
+        type: node
+      annotations:
+        summary: Node memory usage is high
+        description: Node memory usage is above 85% for more than 5 minutes.
+
+    - alert: WardenNodeDiskPressure
+      expr: |
+        kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+      for: 1m
+      labels:
+        severity: critical
+        slo: availability
+        type: node
+      annotations:
+        summary: Node {{ $labels.node }} has disk pressure
+        description: Node {{ $labels.node }} is under disk pressure.
+
+  - name: warden.deployment.health
+    rules:
+    - alert: WardenDeploymentUnavailable
+      expr: |
+        kube_deployment_status_replicas_unavailable{
+          namespace="warden-demo"
+        } > 0
+      for: 2m
+      labels:
+        severity: critical
+        slo: availability
+        type: deployment
+      annotations:
+        summary: Deployment {{ $labels.deployment }} has unavailable replicas
+        description: Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} has {{ $value }} unavailable replicas for more than 2 minutes.
+
+    - alert: WardenDeploymentRolloutStuck
+      expr: |
+        kube_deployment_status_observed_generation{namespace="warden-demo"}
+        != kube_deployment_metadata_generation{namespace="warden-demo"}
+      for: 5m
+      labels:
+        severity: warning
+        slo: availability
+        type: deployment
+      annotations:
+        summary: Deployment {{ $labels.deployment }} rollout is stuck
+        description: Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} rollout has been stuck for more than 5 minutes.
+
+  - name: warden.latency
+    rules:
+    - alert: WardenFrontendHighLatency
+      expr: |
+        histogram_quantile(0.95,
+          sum by (le, service) (
+            rate(frontend_http_request_duration_seconds_bucket{path!="/_healthz"}[5m])
+          )
+        ) > 1.0
+      for: 2m
+      labels:
+        severity: warning
+        slo: latency
+        type: latency
+      annotations:
+        summary: Frontend p95 latency is high
+        description: Frontend p95 latency is above 1 second for more than 2 minutes.
+
+    - alert: WardenCheckoutHighLatency
+      expr: |
+        histogram_quantile(0.95,
+          sum by (le, service) (
+            rate(checkoutservice_grpc_request_duration_seconds_bucket{method!="/grpc.health.v1.Health/Check"}[5m])
+          )
+        ) > 2.0
+      for: 2m
+      labels:
+        severity: warning
+        slo: latency
+        type: latency
+      annotations:
+        summary: Checkout p95 latency is high
+        description: Checkout service p95 latency is above 2 seconds for more than 2 minutes.

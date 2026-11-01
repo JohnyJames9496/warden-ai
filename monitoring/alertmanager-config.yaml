@@ -17,7 +17,7 @@ spec:
     matchers:
       - name: alertname
         matchType: "=~"
-        value: "WardenErrorBudgetBurn.*"
+        value: "Warden.*"
   receivers:
     - name: warden-detector-receiver
       webhookConfigs:

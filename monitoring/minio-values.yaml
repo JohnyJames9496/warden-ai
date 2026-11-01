@@ -1,0 +1,9 @@
+mode: standalone
+replicas: 1
+rootUser: admin
+rootPassword: warden123
+persistence:
+  size: 2Gi
+resources:
+  requests:
+    memory: 256Mi
