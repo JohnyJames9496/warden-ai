@@ -12,6 +12,7 @@ class Action(str, Enum):
     scale_deployment = "scale_deployment"
     rollback_deployment = "rollback_deployment"
     no_action = "no_action"
+    escalate = "escalate"
 
 
 class Diagnosis(BaseModel):

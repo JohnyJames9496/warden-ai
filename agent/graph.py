@@ -1,21 +1,17 @@
 """
 Graph: START -> retrieval -> gather_context -> diagnose -> policy_check -> execute -> END
+
+policies.client and executor.executor are lazy-imported inside their nodes.
+If either is unavailable (M5/M7 not yet deployed), the graph degrades gracefully:
+  policy_check  -> fails closed to needs_approval
+  execute_node  -> skips with reason logged
 """
 import os
-from dotenv import load_dotenv
-load_dotenv()
-import sys
 import logging
-from pathlib import Path
 from typing import TypedDict
 
-# Ensure repo root is accessible for policies.client and executor
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from policies.client import check_policy, PolicyUnavailableError
-from executor.executor import execute
+from dotenv import load_dotenv
+load_dotenv()
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -24,6 +20,7 @@ from pydantic import BaseModel, Field
 from kubernetes import client, config
 
 from rag.retriever import get_runbook, get_similar_incidents
+from schemas import Action
 
 log = logging.getLogger("warden.agent")
 
@@ -33,11 +30,16 @@ log = logging.getLogger("warden.agent")
 # ---------------------------------------------------------------------------
 
 class DiagnosisResult(BaseModel):
-    action: str = Field(description="Remediation action to take (e.g. rollout_restart, scale_deployment, restart_pod, rollback_deployment, no_action, escalate)")
+    action: Action = Field(
+        description=(
+            "Remediation action: rollout_restart | scale_deployment | "
+            "restart_pod | rollback_deployment | no_action | escalate"
+        )
+    )
     target: str = Field(description="Kubernetes resource name to act on")
     namespace: str = Field(description="Namespace of the target resource")
     reason: str = Field(description="Short explanation of the diagnosis")
-    confidence: float = Field(description="Confidence score between 0.0 and 1.0")
+    confidence: float = Field(description="Confidence score 0.0–1.0")
     current_replicas: int | None = Field(default=None, description="Current replicas if scaling")
     desired_replicas: int | None = Field(default=None, description="Desired replicas if scaling")
 
@@ -52,7 +54,7 @@ class AgentState(TypedDict):
     runbook_context: str
     incident_history: str
     diagnosis: dict
-    execution_result: dict  # ← new: executor output
+    execution_result: dict
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +202,9 @@ ACTION_MAPPING = {
 
 
 def policy_check(state: AgentState) -> AgentState:
-    """Evaluates the proposed remediation action against OPA guardrails."""
+    """Evaluate the proposed remediation action against OPA guardrails.
+    Fails closed to needs_approval if OPA is unavailable (M5 not yet deployed).
+    """
     diag = state.get("diagnosis", {})
     if not diag:
         return state
@@ -216,14 +220,35 @@ def policy_check(state: AgentState) -> AgentState:
     if diag.get("desired_replicas") is not None:
         extra["desired_replicas"] = diag["desired_replicas"]
 
+    # Fetch current replicas for scale actions if not already in diagnosis
     if opa_action == "scale" and "current_replicas" not in extra:
         try:
+            try:
+                config.load_incluster_config()
+            except Exception:
+                config.load_kube_config()
             apps_v1 = client.AppsV1Api()
-            scale_obj = apps_v1.read_namespaced_deployment_scale(name=target, namespace=namespace)
+            scale_obj = apps_v1.read_namespaced_deployment_scale(
+                name=target, namespace=namespace
+            )
             extra["current_replicas"] = scale_obj.status.replicas or scale_obj.spec.replicas or 1
             diag["current_replicas"] = extra["current_replicas"]
         except Exception as exc:
-            log.warning("Could not fetch current_replicas from k8s for %s/%s: %s", namespace, target, exc)
+            log.warning(
+                "Could not fetch current_replicas for %s/%s: %s", namespace, target, exc
+            )
+
+    # Lazy import — policies module not available until M5 is deployed
+    try:
+        from policies.client import check_policy  # noqa: PLC0415
+    except ImportError:
+        log.warning("policies.client not available — M5 not yet deployed, failing closed")
+        diag["policy_status"] = "needs_approval"
+        diag["allowed"] = False
+        diag["risk"] = "high"
+        diag["policy_reasons"] = ["OPA client not installed (M5 not yet deployed) — fail-closed"]
+        state["diagnosis"] = diag
+        return state
 
     try:
         decision = check_policy(action=opa_action, namespace=namespace, target=target, **extra)
@@ -242,11 +267,11 @@ def policy_check(state: AgentState) -> AgentState:
             log.info("OPA policy ALLOWED (risk=low, auto-executable) for action '%s'", opa_action)
 
     except Exception as exc:
-        log.error("OPA policy check failed (failing closed to needs_approval): %s", exc)
+        log.error("OPA policy check error — failing closed: %s", exc)
         allowed = False
         risk = "high"
         policy_status = "needs_approval"
-        reasons = [f"OPA policy check unavailable (fail-closed): {type(exc).__name__}: {exc}"]
+        reasons = [f"OPA policy check failed (fail-closed): {type(exc).__name__}: {exc}"]
 
     diag["policy_status"] = policy_status
     diag["allowed"] = allowed
@@ -262,26 +287,54 @@ def policy_check(state: AgentState) -> AgentState:
 
 def execute_node(state: AgentState) -> AgentState:
     """
-    Runs the approved remediation action against the cluster.
-    - auto_executable  → runs immediately
-    - needs_approval   → skips execution, waits for human via Slack/dashboard
-    - denied           → skips execution
+    Run the approved remediation action against the cluster.
+    - auto_executable -> runs immediately via executor.executor
+    - needs_approval  -> skips, waits for human via Slack/dashboard
+    - denied          -> skips
+    If executor module unavailable (M7 not yet deployed) — skips with reason logged.
     """
     diag = state.get("diagnosis", {})
     if not diag:
         state["execution_result"] = {"status": "skipped", "reason": "no diagnosis"}
         return state
 
-    # Skip no_action and escalate — nothing to execute
     action = diag.get("action", "")
     if action in ("no_action", "escalate"):
-        log.info("execute_node: action=%s — skipping execution", action)
+        log.info("execute_node: action=%s — skipping", action)
         state["execution_result"] = {"status": "skipped", "reason": f"action={action}"}
         return state
 
-    result = execute(diag)
-    log.info("execution_result: %s", result)
-    state["execution_result"] = result
+    policy_status = diag.get("policy_status", "needs_approval")
+    if policy_status != "auto_executable":
+        log.info("execute_node: policy_status=%s — skipping execution", policy_status)
+        state["execution_result"] = {
+            "status": "skipped",
+            "reason": f"policy_status={policy_status}",
+        }
+        return state
+
+    # Lazy import — executor not available until M7 is deployed
+    try:
+        from executor.executor import execute  # noqa: PLC0415
+    except ImportError:
+        log.warning("executor.executor not available — M7 not yet deployed")
+        state["execution_result"] = {
+            "status": "skipped",
+            "reason": "executor not available (M7 not yet deployed)",
+        }
+        return state
+
+    try:
+        result = execute(diag)
+        log.info("execution_result: %s", result)
+        state["execution_result"] = result
+    except Exception as exc:
+        log.error("executor failed: %s", exc)
+        state["execution_result"] = {
+            "status": "error",
+            "reason": f"executor error: {type(exc).__name__}: {exc}",
+        }
+
     return state
 
 
