@@ -28,6 +28,10 @@ spec:
                 secretKeyRef:
                   name: agent-secrets
                   key: GROQ_API_KEY
+            - name: DASHBOARD_URL
+              value: "http://warden-dashboard.warden-system.svc:8000"
+            - name: OPA_URL
+              value: "http://warden-opa.warden-system.svc:8181"
           readinessProbe:
             httpGet:
               path: /healthz
