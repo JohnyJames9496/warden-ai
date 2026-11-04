@@ -1,19 +1,23 @@
 import os
-import sys
 import logging
-
-sys.path.insert(0, os.path.dirname(__file__))
 
 import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel
 from graph import build_graph
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 log = logging.getLogger("warden.agent")
 
 api = FastAPI(title="Warden Agent")
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8000")
+
+# Build once at startup — not on every request
+_graph = build_graph()
 
 
 class DiagnoseRequest(BaseModel):
@@ -58,6 +62,11 @@ def healthz():
 
 @api.post("/diagnose")
 def diagnose(req: DiagnoseRequest):
+    log.info(
+        "diagnose request: fingerprint=%s name=%s namespace=%s",
+        req.fingerprint, req.name, req.namespace,
+    )
+
     alert = {
         "name": req.name,
         "namespace": req.namespace,
@@ -66,8 +75,7 @@ def diagnose(req: DiagnoseRequest):
         "pod": req.pod,
     }
 
-    graph = build_graph()
-    result = graph.invoke({
+    result = _graph.invoke({
         "alert": alert,
         "k8s_context": "",
         "runbook_context": "",

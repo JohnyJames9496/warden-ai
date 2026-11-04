@@ -1,2 +1,10 @@
 __pycache__/
 *.pyc
+
+# fixed
+__pycache__/
+*.pyc
+.venv/
+data/
+.env__pycache__/
+*.pyc
