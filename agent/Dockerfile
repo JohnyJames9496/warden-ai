@@ -14,7 +14,7 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 
-COPY main.py graph.py schemas.py prompts.py tools.py entrypoint.sh ./
+COPY main.py graph.py schemas.py entrypoint.sh ./
 COPY rag/ ./rag/
 
 RUN chmod +x entrypoint.sh && chown -R app:app /app
